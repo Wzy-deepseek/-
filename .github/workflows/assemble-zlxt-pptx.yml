@@ -17,14 +17,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Stop when no build marker exists
-        shell: bash
-        run: |
-          if [[ ! -f build/READY ]]; then
-            echo 'No build marker; nothing to do.'
-            exit 0
-          fi
-
       - name: Install presentation tooling
         shell: bash
         run: |
@@ -37,26 +29,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$PWD/build"
           curl -L --fail --retry 4 --retry-all-errors \
             'https://assets.api.gamma.app/export/pptx/bloe92wo5bo2wyu/0aaf3605adb6c787470366015f21d3c0/bloe92wo5bo2wyu.pptx' \
-            -o build/part-01.pptx
+            -o "$PWD/build/part-01.pptx"
           curl -L --fail --retry 4 --retry-all-errors \
             'https://assets.api.gamma.app/export/pptx/cvsevlj4ws3717k/e8bdaedc8e6b64ffed32967df546c082/cvsevlj4ws3717k.pptx' \
-            -o build/part-02.pptx
-          unzip -t build/part-01.pptx >/dev/null
-          unzip -t build/part-02.pptx >/dev/null
+            -o "$PWD/build/part-02.pptx"
+          unzip -t "$PWD/build/part-01.pptx" >/dev/null
+          unzip -t "$PWD/build/part-02.pptx" >/dev/null
 
       - name: Render both decks and create one 20-slide PPTX
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p build/pdf build/rendered
-          libreoffice --headless --convert-to pdf --outdir build/pdf build/part-01.pptx
-          libreoffice --headless --convert-to pdf --outdir build/pdf build/part-02.pptx
+          mkdir -p "$PWD/build/pdf" "$PWD/build/rendered"
+          soffice -env:UserInstallation=file:///tmp/lo-profile-1 --headless \
+            --convert-to pdf --outdir "$PWD/build/pdf" "$PWD/build/part-01.pptx"
+          soffice -env:UserInstallation=file:///tmp/lo-profile-2 --headless \
+            --convert-to pdf --outdir "$PWD/build/pdf" "$PWD/build/part-02.pptx"
+          test -f "$PWD/build/pdf/part-01.pdf"
+          test -f "$PWD/build/pdf/part-02.pdf"
           python - <<'PY'
           from pathlib import Path
           import io
-          import fitz
+          import pymupdf
           from PIL import Image
           from pptx import Presentation
           from pptx.util import Inches
@@ -69,9 +66,9 @@ jobs:
           count = 0
 
           for pdf_path in pdfs:
-              doc = fitz.open(pdf_path)
+              doc = pymupdf.open(pdf_path)
               for page in doc:
-                  pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0), alpha=False)
+                  pix = page.get_pixmap(matrix=pymupdf.Matrix(2.0, 2.0), alpha=False)
                   image = Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB')
                   output = Path('build/rendered') / f'slide-{count + 1:02d}.jpg'
                   image.save(output, 'JPEG', quality=88, optimize=True, progressive=True, subsampling=1)
@@ -86,6 +83,13 @@ jobs:
           prs.save(output)
           print(f'Created {output} with {count} slides and {output.stat().st_size} bytes')
           PY
+          unzip -t ZLXT_Canva_Merged_20_Slides.pptx >/dev/null
+          python - <<'PY'
+          from pptx import Presentation
+          prs = Presentation('ZLXT_Canva_Merged_20_Slides.pptx')
+          assert len(prs.slides) == 20, len(prs.slides)
+          print('Verified 20 slides')
+          PY
 
       - name: Commit the merged presentation
         shell: bash
@@ -94,6 +98,9 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ZLXT_Canva_Merged_20_Slides.pptx
-          git rm -r build
+          if git diff --cached --quiet; then
+            echo 'Presentation is already up to date.'
+            exit 0
+          fi
           git commit -m 'Add merged 20-slide ZLXT presentation'
           git push
