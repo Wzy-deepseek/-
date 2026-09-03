@@ -1,0 +1,44 @@
+name: Assemble ZLXT PPTX
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'upload_parts/READY'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Assemble and verify PowerPoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f upload_parts/READY ]]; then
+            echo 'READY marker is absent; nothing to assemble.'
+            exit 0
+          fi
+          cat upload_parts/part_*.b64 | tr -d '\r\n' | base64 --decode > ZLXT_Canva_Merged_20_Slides.pptx
+          echo '7da03da05d9c174315b38d200bee09b0e2c1251bb2aa26dcfaf22407ec0f4e11  ZLXT_Canva_Merged_20_Slides.pptx' | sha256sum --check --strict
+          test "$(stat -c%s ZLXT_Canva_Merged_20_Slides.pptx)" = '585160'
+
+      - name: Commit assembled file
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f upload_parts/READY ]]; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ZLXT_Canva_Merged_20_Slides.pptx
+          git rm -r upload_parts
+          git commit -m 'Add merged 20-slide ZLXT Canva presentation'
+          git push
