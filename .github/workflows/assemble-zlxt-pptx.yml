@@ -17,11 +17,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install PowerPoint composition tooling
+      - name: Install PowerPoint slide-copy tooling
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check python-pptx pptxcompose
+          python -m pip install --disable-pip-version-check python-pptx pptx-slide-copier
 
       - name: Download the two source decks
         shell: bash
@@ -37,30 +37,30 @@ jobs:
           unzip -t "$PWD/build/part-01.pptx" >/dev/null
           unzip -t "$PWD/build/part-02.pptx" >/dev/null
 
-      - name: Merge the two decks using native PowerPoint structure
+      - name: Merge the two decks while preserving PowerPoint objects
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
           from pptx import Presentation
-          from pptxcompose.compose import Composer
+          from pptx_slide_copier import SlideCopier
 
           first_path = Path('build/part-01.pptx')
           second_path = Path('build/part-02.pptx')
           output_path = Path('ZLXT_Canva_Merged_20_Slides.pptx')
 
-          first = Presentation(first_path)
-          second = Presentation(second_path)
-          if len(first.slides) != 10 or len(second.slides) != 10:
+          target = Presentation(first_path)
+          source = Presentation(second_path)
+          if len(target.slides) != 10 or len(source.slides) != 10:
               raise RuntimeError(
-                  f'Expected 10+10 source slides, got {len(first.slides)}+{len(second.slides)}'
+                  f'Expected 10+10 source slides, got {len(target.slides)}+{len(source.slides)}'
               )
 
-          composer = Composer(first)
-          composer.append(second)
-          composer.save(output_path)
+          for index in range(len(source.slides)):
+              SlideCopier.copy_slide(source, index, target)
 
+          target.save(output_path)
           merged = Presentation(output_path)
           if len(merged.slides) != 20:
               raise RuntimeError(f'Expected 20 merged slides, got {len(merged.slides)}')
